@@ -249,7 +249,7 @@ build.static_library = function (self, args)
       extras = profile.artifacts.compile(target_dir, source),
     }
   end
-  local archive_flags = profile.flags.archive
+  local archive_flags = profile.flags.archive or {}
   archive {
     flags = archive_flags,
     inputs = objects,
