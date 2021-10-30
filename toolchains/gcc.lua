@@ -169,7 +169,7 @@ build.executable = function (self, args)
     })
   end
   for _, source in ipairs(self.sources) do
-    local object = target_dir .. tup.base(source) .. '.o'
+    local object = target_dir .. target .. '.p/' .. tup.base(source) .. '.o'
     table.insert(objects, object)
     compile {
       flags = compile_flags,
@@ -240,7 +240,7 @@ build.static_library = function (self, args)
     })
   end
   for _, source in ipairs(self.sources) do
-    local object = target_dir .. tup.base(source) .. '.o'
+    local object = target_dir .. target .. '.p/' .. tup.base(source) .. '.o'
     table.insert(objects, object)
     compile {
       flags = compile_flags,
