@@ -136,6 +136,21 @@ local function link (args)
   }
 end
 
+local function archive (args)
+  local command = {
+    'gcc-ar',
+    table.concat(args.flags, ' '),
+    'rcs',
+    args.output,
+    table.concat(args.inputs, ' '),
+  }
+  tup.definerule {
+    inputs = args.inputs,
+    command = table.concat(command, ' '),
+    outputs = {args.output}
+  }
+end
+
 local build = {}
 
 build.executable = function (self, args)
@@ -209,7 +224,40 @@ build.object = function (self, args)
   }
 end
 
-build.static_library = function (args)
+build.static_library = function (self, args)
+  -- args {
+  --   target = ...,
+  --   profile = ...,
+  -- }
+  local target = args.target
+  local profile = args.profile
+  local target_dir = profile.build_dir
+  local objects = table.clone(self.objects)
+  local compile_flags = profile.flags.compile
+  if #self.include_dirs > 0 then
+    table.append(compile_flags, {
+      '-I ' .. table.concat(self.include_dirs, ' -I ')
+    })
+  end
+  for _, source in ipairs(self.sources) do
+    local object = target_dir .. tup.base(source) .. '.o'
+    table.insert(objects, object)
+    compile {
+      flags = compile_flags,
+      inputs = {source},
+      output = object,
+      extras = profile.artifacts.compile(target_dir, source),
+    }
+  end
+  local archive_flags = profile.flags.archive
+  archive {
+    flags = archive_flags,
+    inputs = objects,
+    output = target_dir .. target,
+  }
+  return {
+    static_librarys = {target_dir .. target}
+  }
 end
 
 build.shared_library = function (args)
@@ -248,6 +296,15 @@ recipes.executable = recipe.extend(recipes.base) {
   end,
   build = function (_)
     return build.executable
+  end
+}
+
+recipes.static_library = recipe.extend(recipes.base) {
+  objects = function (objects_in)
+    return objects_in or {}
+  end,
+  build = function (_)
+    return build.static_library
   end
 }
 
