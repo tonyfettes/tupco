@@ -19,7 +19,8 @@ local gcc_profiles = {
 }
 
 local gcc_profile = profile.extend(profile.base) {
-  flags = function (flags_in)
+  flags = function (config)
+    local flags_in = config.flags
     local base = gcc_profiles.base
     local out
     if flags_in == nil then
@@ -37,7 +38,8 @@ local gcc_profile = profile.extend(profile.base) {
     end
     return out
   end,
-  artifacts = function (artifacts_in)
+  artifacts = function (config)
+    local artifacts_in = config.artifacts
     local base = gcc_profiles.base
     local out
     if artifacts_in == nil then
@@ -118,19 +120,33 @@ end
 local function link (args)
   -- args = {
   --   flags = { '-flto', ... },
-  --   inputs = { 'example.o', ... },
+  --   inputs = {
+  --     objects = { 'example.o', ... },
+  --     libraries = { 'libexample.a', ... },
+  --   },
   --   output = 'example'
   --   extras = { 'example.wpa.gcno' },
   -- }
+  local lib_flags = {}
+  local libraries = args.inputs.libraries or {}
+  local inputs = table.clone(args.inputs.objects)
+  for _, library in ipairs(libraries) do
+    table.insert(lib_flags, '-L ' .. library[1])
+    table.insert(lib_flags, '-l:' .. library[2])
+  end
   local command = {
     'gcc',
     table.concat(args.flags, ' '),
-    table.concat(args.inputs, ' '),
+    table.concat(inputs, ' '),
+    table.concat(lib_flags, ' '),
     '-o',
     args.output,
   }
+  for _, library in ipairs(libraries) do
+    table.insert(inputs, library[1] .. library[2])
+  end
   tup.definerule {
-    inputs = args.inputs,
+    inputs = inputs,
     command = table.concat(command, ' '),
     outputs = array.concat({args.output}, args.extras),
   }
@@ -153,164 +169,193 @@ end
 
 local build = {}
 
-build.executable = function (self, args)
-  -- args {
-  --   target = ...,
-  --   profile = ...,
-  -- }
-  local target = args.target
-  local profile = args.profile
-  local target_dir = profile.build_dir
-  local objects = table.clone(self.objects)
-  local compile_flags = profile.flags.compile
-  if #self.include_dirs > 0 then
-    table.append(compile_flags, {
-      '-I ' .. table.concat(self.include_dirs, ' -I ')
-    })
+build.executable = function (self)
+  local out = {
+    executables = {}
+  }
+  local target = self.target
+  local include_dirs = self.include_dirs
+  local sources = self.sources
+  local libraries = self.libraries
+  for _, profile in ipairs(self.profiles) do
+    local objects = table.clone(self.objects)
+    local target_dir = profile.build_dir
+    local compile_flags = profile.flags.compile
+    if #include_dirs > 0 then
+      table.append(compile_flags, {
+        '-I ' .. table.concat(include_dirs, ' -I ')
+      })
+    end
+    for _, source in ipairs(sources) do
+      local object = target_dir .. target .. '.p/' .. tup.base(source) .. '.o'
+      table.insert(objects, object)
+      compile {
+        flags = compile_flags,
+        inputs = {source},
+        output = object,
+        extras = profile.artifacts.compile(target_dir, source),
+      }
+    end
+    local link_flags = profile.flags.link
+    local executable = target_dir .. target
+    link {
+      flags = link_flags,
+      inputs = {
+        objects = objects,
+        libraries = libraries,
+      },
+      output = executable,
+      extras = profile.artifacts.link(target_dir, target)
+    }
+    table.insert(out.executables, executable)
   end
-  for _, source in ipairs(self.sources) do
-    local object = target_dir .. target .. '.p/' .. tup.base(source) .. '.o'
-    table.insert(objects, object)
+  return out
+end
+
+build.object = function (self)
+  local out = {
+    objects = {}
+  }
+  local target = self.target
+  for _, profile in ipairs(self.profiles) do
+    local target_dir = profile.build_dir
+    local compile_flags = profile.flags.compile
+    if #self.include_dirs > 0 then
+      table.append(compile_flags, {
+        '-I ' .. table.concat(self.include_dirs, ' -I ')
+      })
+    end
+    local source = self.sources[1]
+    local object = target_dir .. target
     compile {
       flags = compile_flags,
       inputs = {source},
       output = object,
-      extras = profile.artifacts.compile(target_dir, source),
+      extras = profile.artifacts.compile(target_dir, object),
     }
+    table.insert(out.objects, object)
   end
-  local link_flags = profile.flags.link
-  if #self.librarys > 0 then
-    table.append(link_flags, {
-      '-l' .. table.concat(self.librarys, ' -l')
-    })
-  end
-  link {
-    flags = link_flags,
-    inputs = objects,
-    output = target_dir .. target,
-    extras = profile.artifacts.link(target_dir, target)
-  }
-  return {
-    executables = {target_dir .. target}
-  }
+  return out
 end
 
-build.object = function (self, args)
-  -- args {
-  --   target = ...,
-  --   profile = ...,
-  -- }
-  local target = args.target
-  local profile = args.profile
-  local target_dir = profile.build_dir
-  local objects = {}
-  local compile_flags = profile.flags.compile
-  if #self.include_dirs > 0 then
-    table.append(compile_flags, {
-      '-I ' .. table.concat(self.include_dirs, ' -I ')
-    })
-  end
-  local source = self.sources[1]
-  local object = target_dir .. target
-  table.insert(objects, object)
-  compile {
-    flags = compile_flags,
-    inputs = {source},
-    output = object,
-    extras = profile.artifacts.compile(target_dir, object),
+build.static_library = function (self)
+  local out = {
+    libraries = {}
   }
-  return {
-    objects = objects
-  }
-end
-
-build.static_library = function (self, args)
-  -- args {
-  --   target = ...,
-  --   profile = ...,
-  -- }
-  local target = args.target
-  local profile = args.profile
-  local target_dir = profile.build_dir
-  local objects = table.clone(self.objects)
-  local compile_flags = profile.flags.compile
-  if #self.include_dirs > 0 then
-    table.append(compile_flags, {
-      '-I ' .. table.concat(self.include_dirs, ' -I ')
-    })
-  end
-  for _, source in ipairs(self.sources) do
-    local object = target_dir .. target .. '.p/' .. tup.base(source) .. '.o'
-    table.insert(objects, object)
-    compile {
-      flags = compile_flags,
-      inputs = {source},
-      output = object,
-      extras = profile.artifacts.compile(target_dir, source),
+  local target = self.target
+  local include_dirs = self.include_dirs
+  local sources = self.sources
+  for _, profile in ipairs(self.profiles) do
+    local target_dir = profile.build_dir
+    local objects = table.clone(self.objects)
+    local compile_flags = profile.flags.compile
+    if #include_dirs > 0 then
+      table.append(compile_flags, {
+        '-I ' .. table.concat(include_dirs, ' -I ')
+      })
+    end
+    for _, source in ipairs(sources) do
+      local object = target_dir .. target .. '.p/' .. tup.base(source) .. '.o'
+      table.insert(objects, object)
+      compile {
+        flags = compile_flags,
+        inputs = {source},
+        output = object,
+        extras = profile.artifacts.compile(target_dir, source),
+      }
+    end
+    local archive_flags = profile.flags.archive or {}
+    archive {
+      flags = archive_flags,
+      inputs = objects,
+      output = target_dir .. target,
     }
+    table.insert(out.libraries, {target_dir, target})
   end
-  local archive_flags = profile.flags.archive or {}
-  archive {
-    flags = archive_flags,
-    inputs = objects,
-    output = target_dir .. target,
-  }
-  return {
-    static_librarys = {target_dir .. target}
-  }
+  return out
 end
 
 build.shared_library = function (args)
 end
 
-local recipes = {}
+local gcc_recipes = {}
 
-recipes.base = recipe.extend(recipe.base) {
-  include_dirs = function (include_dirs)
-    return include_dirs or {}
-  end,
-}
-
-recipes.object = recipe.extend(recipes.base) {
-  sources = function (sources_in)
-    assert(sources_in ~= nil and #sources_in == 1 and type(sources_in))
-    return sources_in
-  end,
-  build = function (_)
-    return build.object
+local function dependencies_init(config)
+  local dependencies_in = config.dependencies or {}
+  for _, dependency in ipairs(dependencies_in) do
+    local out = dependency.out
+    assert(type(out) == "table", "invalid output of dependency " .. dependency.target)
+    for ty, dep_list in pairs(out) do
+      config[ty] = config[ty] or {}
+      table.append(config[ty], dep_list)
+    end
   end
+  return dependencies_in
+end
+
+local function extend_dep(base)
+  return recipe.extend(base) {
+    dependencies = dependencies_init
+  }
+end
+
+gcc_recipes.common = recipe.extend(recipe.none) {
+  sources = function (config)
+    return config.sources or {}
+  end,
+  target = function (config)
+    return config.target
+  end,
+  include_dirs = function (config)
+    return config.include_dirs or {}
+  end,
+  profiles = function(config)
+    return config.profiles or {gcc_profiles.base}
+  end,
 }
 
-recipes.executable = recipe.extend(recipes.base) {
-  objects = function (objects_in)
-    return objects_in or {}
-  end,
-  static_librarys = function (static_in)
-    return static_in or {}
-  end,
-  shared_librarys = function (shared_in)
-    return shared_in or {}
-  end,
-  librarys = function (lib_in)
-    return lib_in or {}
-  end,
-  build = function (_)
-    return build.executable
-  end
-}
+gcc_recipes.object = extend_dep (
+  recipe.extend(gcc_recipes.common) {
+    sources = function (config)
+      local sources_in = config.sources
+      assert(sources_in ~= nil and #sources_in == 1 and type(sources_in[1]) == "string",
+        "sources in object recipe sould only be one array of string with length 1")
+      return sources_in
+    end,
+    build = function (_)
+      return build.object
+    end
+  }
+)
 
-recipes.static_library = recipe.extend(recipes.base) {
-  objects = function (objects_in)
-    return objects_in or {}
-  end,
-  build = function (_)
-    return build.static_library
-  end
-}
+gcc_recipes.executable = extend_dep(
+  recipe.extend(gcc_recipes.common) {
+    objects = function (config)
+      return config.objects or {}
+    end,
+    libraries = function (config)
+      return config.libraries or {}
+    end,
+    build = function (_)
+      return build.executable
+    end
+  }
+)
 
-recipes.base = nil
+gcc_recipes.static_library = extend_dep(
+  recipe.extend(gcc_recipes.common) {
+    objects = function (config)
+      return config.objects or {}
+    end,
+    build = function (_)
+      return build.static_library
+    end
+  }
+)
+
+gcc_recipes.base = nil
 
 toolchains.gcc = toolchain {
   profiles = gcc_profiles,
-  recipes = recipes,
+  recipes = gcc_recipes,
 }

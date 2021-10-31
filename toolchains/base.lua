@@ -25,9 +25,26 @@ end
 
 recipe = {}
 
+local function flatten(sources)
+  for k, v in pairs(sources) do
+    if type(k) == "string" then
+      if type(v) == "table" then
+        flatten(v)
+        for _, vv in ipairs(v) do
+          table.insert(sources, vv)
+        end
+      elseif type(v) == "string" then
+        table.insert(sources, k .. v)
+      end
+      sources[k] = nil
+    end
+  end
+end
+
 recipe.extend = extype.extend
 recipe.none = extype.empty
 recipe.base = function (config)
   config.sources = config.sources or {}
+  flatten(config.sources)
   return config
 end

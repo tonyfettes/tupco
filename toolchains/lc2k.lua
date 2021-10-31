@@ -75,7 +75,8 @@ end
 local recipes = {}
 
 recipes.object = recipe.extend(recipe.none) {
-  sources = function (sources_in)
+  sources = function (config)
+    local sources_in = config.sources
     assert(sources_in ~= nil and #sources_in == 1 and type(sources_in[1]) == "string")
     return sources_in
   end,
@@ -85,8 +86,8 @@ recipes.object = recipe.extend(recipe.none) {
 }
 
 recipes.executable = recipe.extend(recipe.base) {
-  objects = function (objects_in)
-    return objects_in or {}
+  objects = function (config)
+    return config.objects or {}
   end,
   build = function (_)
     return build.executable
