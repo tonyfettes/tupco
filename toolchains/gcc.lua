@@ -187,13 +187,14 @@ build.executable = function (self)
       })
     end
     for _, source in ipairs(sources) do
-      local object = target_dir .. target .. '.p/' .. tup.base(source) .. '.o'
+      local object_dir = target_dir .. target .. '.p/'
+      local object = object_dir .. tup.base(source) .. '.o'
       table.insert(objects, object)
       compile {
         flags = compile_flags,
         inputs = {source},
         output = object,
-        extras = profile.artifacts.compile(target_dir, source),
+        extras = profile.artifacts.compile(object_dir, source),
       }
     end
     local link_flags = profile.flags.link
