@@ -36,6 +36,23 @@ local function link (args)
   }
 end
 
+local simulate = {}
+
+simulate.pipeline = function (args)
+  local pipeline_simulator = toolchain_path .. 'pipeline'
+  local command = {
+    pipeline_simulator,
+    args.input,
+    '>',
+    args.output,
+  }
+  tup.definerule {
+    inputs = {pipeline_simulator, args.input},
+    command = table.concat(command, ' '),
+    outputs = {args.output}
+  }
+end
+
 local build = {}
 
 build.executable = function (self)
@@ -62,12 +79,10 @@ build.executable = function (self)
     }
     table.insert(out.executables, executable)
   end
-  return {
-    executables = { target }
-  }
+  return out
 end
 
-build.object = function (self, args)
+build.object = function (self)
   local out = {
     objects = {}
   }
@@ -84,6 +99,30 @@ build.object = function (self, args)
   return out
 end
 
+build.simulate = {}
+build.simulate.pipeline = function (self)
+  local out = {
+    plains = {}
+  }
+  local target = self.target
+  self.target = tup.base(target) .. '.mc'
+  local _profiles = self.profiles
+  for _, profile in ipairs(_profiles) do
+    self.profiles = { profile }
+    local executables = build.executable(self).executables
+    local target_dir = profile.build_dir
+    for _, executable in ipairs(executables) do
+      local stdout = target_dir .. target
+      simulate.pipeline {
+        input = executable,
+        output = stdout
+      }
+      table.insert(out.plains, stdout)
+    end
+  end
+  return out
+end
+
 local recipes = {}
 
 recipes.object = recipe.extend(recipe.none) {
@@ -92,8 +131,8 @@ recipes.object = recipe.extend(recipe.none) {
     assert(sources_in ~= nil and #sources_in == 1 and type(sources_in[1]) == "string")
     return sources_in
   end,
-  build = function (_)
-    return build.object
+  build = function (config)
+    return config.build or build.object
   end
 }
 
@@ -101,8 +140,15 @@ recipes.executable = recipe.extend(recipe.base) {
   objects = function (config)
     return config.objects or {}
   end,
-  build = function (_)
-    return build.executable
+  build = function (config)
+    return config.build or build.executable
+  end
+}
+
+recipes.simulate = {}
+recipes.simulate.pipeline = recipe.extend(recipes.executable) {
+  build = function (config)
+    return config.build or build.simulate.pipeline
   end
 }
 
