@@ -1,6 +1,6 @@
 tup.include('base.lua')
 
-local toolchain_path = 'flick/'
+local toolchain_path = 'build/release/'
 
 local profiles = {
   ["base"] = {
@@ -38,38 +38,50 @@ end
 
 local build = {}
 
-build.executable = function (self, args)
-  local profile = args.profile
-  local target_dir = profile.build_dir
-  local objects = table.clone(self.objects) or {}
-  local target = target_dir .. args.target
-  for _, source in ipairs(self.sources) do
-    local object = target_dir .. tup.base(source) .. '.obj'
-    table.insert(objects, object)
-    compile {
-      input = source,
-      output = object,
-    }
-  end
-  link {
-    inputs = objects,
-    output = target,
+build.executable = function (self)
+  local out = {
+    executables = {}
   }
+  local target = self.target
+  for _, profile in ipairs(self.profiles) do
+    local target_dir = profile.build_dir
+    local objects = table.clone(self.objects) or {}
+    local executable = target_dir .. target
+    for _, source in ipairs(self.sources) do
+      local object_dir = executable .. '.p/'
+      local object = object_dir .. tup.base(source) .. '.obj'
+      table.insert(objects, object)
+      compile {
+        input = source,
+        output = object,
+      }
+    end
+    link {
+      inputs = objects,
+      output = executable,
+    }
+    table.insert(out.executables, executable)
+  end
   return {
     executables = { target }
   }
 end
 
 build.object = function (self, args)
-  local target_dir = args.profile.build_dir
-  local object = target_dir .. args.target
-  compile {
-    input = self.sources[1],
-    output = object
+  local out = {
+    objects = {}
   }
-  return {
-    objects = { object }
-  }
+  local target = self.target
+  for _, profile in ipairs(self.profiles) do
+    local target_dir = profile.build_dir
+    local object = target_dir .. target
+    compile {
+      input = self.sources[1],
+      output = object
+    }
+    table.insert(out.objects, object)
+  end
+  return out
 end
 
 local recipes = {}
