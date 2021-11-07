@@ -3,8 +3,12 @@ tup.include('base.lua')
 local gcc_profiles = {
   ["base"] = {
     flags = {
-      compile = {},
-      link = {},
+      compile = {
+        '-fdiagnostics-color=always'
+      },
+      link = {
+        '-fdiagnostics-color=always'
+      },
     },
     build_dir = 'build/',
     artifacts = {
